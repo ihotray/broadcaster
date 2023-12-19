@@ -4,13 +4,9 @@
 #include <iot/cJSON.h>
 #include "broadcaster.h"
 
-
-
-
-static void reply(struct mg_connection *c, cJSON *req, cJSON *address) {
+static void udp_payload_read_cb(struct mg_connection *c, cJSON *request, cJSON *address) {
 
     struct broadcaster_private *priv = (struct broadcaster_private *)c->mgr->userdata;
-    const char* request = cJSON_Print(req);
     const char *ret = NULL;
     const char *response = NULL;
     cJSON *root = NULL;
@@ -29,7 +25,7 @@ static void reply(struct mg_connection *c, cJSON *req, cJSON *address) {
         goto done;
     }
 
-    lua_pushstring(L, request);
+    lua_pushstring(L, request->valuestring);
     lua_pushstring(L, address->valuestring);
 
     if (lua_pcall(L, 2, 1, 0)) {//two param, one return values, zero error func
@@ -39,11 +35,11 @@ static void reply(struct mg_connection *c, cJSON *req, cJSON *address) {
 
     ret = lua_tostring(L, -1);
     if (!ret) {
-        MG_ERROR(("lua call no response"));
+        MG_ERROR(("lua call no ret"));
         goto done;
     }
 
-    MG_INFO(("response: %s", ret));
+    MG_INFO(("ret: %s", ret));
 
     root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "service", priv->cfg.opts->service);
@@ -53,8 +49,6 @@ static void reply(struct mg_connection *c, cJSON *req, cJSON *address) {
     mg_send(c, response, strlen(response));
 
 done:
-    if (request)
-        cJSON_free((void*)request);
     if (response)
         cJSON_free((void*)response);
     if (root)
@@ -74,7 +68,7 @@ static void udp_ev_read_cb(struct mg_connection *c, int ev, void *ev_data, void 
         cJSON *address = cJSON_GetObjectItem(root, "address");
         if ( cJSON_IsString(service) && mg_casecmp(service->valuestring, priv->cfg.opts->service) == 0 \
             && cJSON_IsString(payload) && cJSON_IsString(address)) {
-            reply(c, payload, address);
+            udp_payload_read_cb(c, payload, address);
         } else {
             MG_ERROR(("service name not match"));
         }
