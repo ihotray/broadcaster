@@ -4,7 +4,7 @@
 #include <iot/cJSON.h>
 #include "broadcaster.h"
 
-static void udp_payload_read_cb(struct mg_connection *c, cJSON *request, cJSON *address) {
+static void udp_payload_read_cb(struct mg_connection *c, cJSON *request, cJSON *address, cJSON *nonce) {
 
     struct broadcaster_private *priv = (struct broadcaster_private *)c->mgr->userdata;
     const char *ret = NULL;
@@ -39,12 +39,28 @@ static void udp_payload_read_cb(struct mg_connection *c, cJSON *request, cJSON *
         goto done;
     }
 
-    MG_INFO(("ret: %s", ret));
+    MG_DEBUG(("ret: %s", ret));
 
     root = cJSON_CreateObject();
     cJSON_AddStringToObject(root, "service", priv->cfg.opts->service);
     cJSON_AddStringToObject(root, "payload", ret);
+    cJSON_AddNumberToObject(root, "nonce", nonce->valueint);
+
+    //add sign, sha1(service + payload + nonce + key)
+    unsigned char digest[20] = {0};
+    char sign_str[41] = {0};
+    char *data = mg_mprintf("%s%s%d%s", priv->cfg.opts->service, ret, nonce->valueint, priv->cfg.opts->key);
+    mg_sha1_ctx ctx;
+    mg_sha1_init(&ctx);
+    mg_sha1_update(&ctx, (const unsigned char *)data, strlen(data));
+    mg_sha1_final(digest, &ctx);
+    free(data);
+
+    mg_hex(digest, sizeof(digest), sign_str);
+    cJSON_AddStringToObject(root, "sign", sign_str);
+
     response = cJSON_Print(root);
+    MG_INFO(("response: %s", response));
 
     mg_send(c, response, strlen(response));
 
@@ -66,11 +82,32 @@ static void udp_ev_read_cb(struct mg_connection *c, int ev, void *ev_data, void 
         cJSON *service = cJSON_GetObjectItem(root, "service");
         cJSON *payload = cJSON_GetObjectItem(root, "payload");
         cJSON *address = cJSON_GetObjectItem(root, "address");
-        if ( cJSON_IsString(service) && mg_casecmp(service->valuestring, priv->cfg.opts->service) == 0 \
-            && cJSON_IsString(payload) && cJSON_IsString(address)) {
-            udp_payload_read_cb(c, payload, address);
+        cJSON *nonce = cJSON_GetObjectItem(root, "nonce");
+        cJSON *sign = cJSON_GetObjectItem(root, "sign");
+        if ( cJSON_IsString(service) && mg_casecmp(cJSON_GetStringValue(service), priv->cfg.opts->service) == 0 \
+            && cJSON_IsString(payload) && cJSON_IsString(address) && cJSON_IsNumber(nonce) && cJSON_IsString(sign) ) {
+
+            //check sign, sha1(service + payload + address + nonce + key)
+            unsigned char digest[20] = {0};
+            char sign_str[41] = {0};
+            char *data = mg_mprintf("%s%s%s%d%s", priv->cfg.opts->service, cJSON_GetStringValue(payload), cJSON_GetStringValue(address), \
+                nonce->valueint, priv->cfg.opts->key);
+            //MG_DEBUG(("data: %s", data));
+            mg_sha1_ctx ctx;
+            mg_sha1_init(&ctx);
+            mg_sha1_update(&ctx, (const unsigned char *)data, strlen(data));
+            mg_sha1_final(digest, &ctx);
+            free(data);
+
+            mg_hex(digest, sizeof(digest), sign_str);
+            if ( mg_casecmp(cJSON_GetStringValue(sign), sign_str) == 0 ) { //sign matched
+                udp_payload_read_cb(c, payload, address, nonce);
+            } else {
+                MG_ERROR(("sign not matched: %s, %s", cJSON_GetStringValue(sign), sign_str));
+            }
+
         } else {
-            MG_ERROR(("service name not match"));
+            MG_ERROR(("service name not matched"));
         }
         cJSON_Delete(root);
     }

@@ -8,6 +8,7 @@ struct broadcaster_option {
     const char *service;
     const char *udp_listening_address;  //udp 监听端口
     const char *callback_lua;
+    const char *key;
     int debug_level;
 };
 

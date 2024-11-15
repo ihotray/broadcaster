@@ -9,6 +9,7 @@ static void usage(const char *prog) {
             "  -n SERVICE  - service name for different product, default: '%s'\n"
             "  -l ADDR     - udp listening address, default: '%s'\n"
             "  -x PATH     - broadcaster callback lua script, default: '%s'\n"
+            "  -k KEY      - udp data sign key, defualt: '******'\n"
             "  -v LEVEL    - debug level, from 0 to 4, default: %d\n",
             MG_VERSION, prog, "iot-device", "udp://0.0.0.0:5858", "/www/iot/handler/broadcaster.lua", MG_LL_INFO);
 
@@ -21,6 +22,7 @@ int main(int argc, char *argv[]) {
         .service = "iot-device",
         .udp_listening_address = "udp://0.0.0.0:5858",
         .callback_lua = "/www/iot/handler/broadcaster.lua",
+        .key = "1a2b3C4D5e6f",
         .debug_level = MG_LL_INFO
     };
 
@@ -32,6 +34,8 @@ int main(int argc, char *argv[]) {
             opts.udp_listening_address = argv[++i];
         } else if (strcmp(argv[i], "-x") == 0) {
             opts.callback_lua = argv[++i];
+        } else if (strcmp(argv[i], "-k") == 0) {
+            opts.key = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0) {
             opts.debug_level = atoi(argv[++i]);
         } else {
